@@ -1,0 +1,35 @@
+#!/bin/bash
+
+SERVER_server_mode() {
+	# Check if an index has been given (if not, serve usual index ./out/parser/full_dict.txt)
+	serv_args=("$@")
+	serv_n_args=${#serv_args[@]}
+	#echo "" > "${SERVER_DIR}/served_index.txt"
+	rm "${SERVER_DIR}/served_index.txt" 2>/dev/null
+	for (( i=0;i<$serv_n_args;i++ )); do
+		if [[ -f "${serv_args[${i}]}" ]]; then
+			FULL_DICT="$(realpath ${serv_args[${i}]})"
+			echo " \"${FULL_DICT}\"" >> "${SERVER_DIR}/caching_index.txt"
+			echo "Serving provided index : ${FULL_DICT}"
+			#index_already_given=true
+			list_of_indexes+=("${FULL_DICT}")
+			continue
+		fi
+	done
+
+	if ! [[ -f "${SERVER_DIR}/caching_index.txt" ]]; then
+		echo "Serving default index : ${FULL_DICT}"
+		echo "${FULL_DICT}" > "${SERVER_DIR}/served_index.txt"
+	else
+		cat "${SERVER_DIR}/caching_index.txt" | tr -d '\n' > "${SERVER_DIR}/served_index.txt"
+		rm "${SERVER_DIR}/caching_index.txt" 2>/dev/null
+	fi
+
+	#while :; do
+		#if [[ -z $server_launched ]]; then
+	#server_launched=true
+	#python -m http.server 1111 --directory "${SERVER_DIR}"
+	php -S ${IP_ADDRESS}:${PORT} -t "${SERVER_DIR}"
+		#fi
+	#done
+}

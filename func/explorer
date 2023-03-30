@@ -1,0 +1,73 @@
+#!/bin/bash
+
+EXPLORER_parse_arguments() {
+	args=("$@")
+	n_args=${#args[@]}
+	if [ "$n_args" != 0 ]; then
+		for (( i=0; i<$n_args; i++)); do # Grab query
+			cur_exp_arg="${args[${i}]}"
+			if [ ! -d "$cur_exp_arg" ]; then
+				EXCLUDED_FROM_INDEXING+=("$cur_exp_arg")
+				POTENTIAL_QUERY="$(echo $POTENTIAL_QUERY $cur_exp_arg)"
+			fi
+		done
+		for (( i=0; i<$n_args; i++)); do
+			cur_exp_arg="${args[${i}]}"
+			if [ -d "$cur_exp_arg" ]; then
+				EXPLORER_get_dirs_and_files_lists "$(realpath $cur_exp_arg)"
+			fi
+		done
+		#if [[ -n "${POTENTIAL_QUERY}" ]]; then
+		#	awk -F'\t' '{print $2"\t"$1}' "${FINDER_TMP_DIR}explorer_query.txt" | sort -nr | uniq | awk  -F'\t' '{print $2"\t"$1}'
+		#fi
+		if [[ -n "${POTENTIAL_QUERY}" ]]; then
+			for ind in ${list_of_indexes_for_query[@]}; do
+				FINDER_check_query "${ind}" "${POTENTIAL_QUERY}" >/dev/null
+				cat "${QUERY_ORDERING}" >> "${FINDER_TMP_DIR}explorer_query.txt" #| >/dev/null 2>&1
+			done
+			awk -F'\t' '{print $2"\t"$1}' "${FINDER_TMP_DIR}explorer_query.txt" | sort -nr | uniq | awk -F'\t' '{print $2"\t"$1}'  2>/dev/null
+		fi
+	else
+		echo "${_RED}[ERROR] No given file or directory.${_RESET}"
+		exit 1
+	fi
+}
+
+EXPLORER_get_dirs_and_files_lists() {
+	dir_to_check1=$1
+	counter=0
+
+	#find "$dir_to_check1" -type d | sort | uniq && exit
+
+	while read subfolder; do
+		cur_dir=$(realpath "$subfolder")
+		#index_name=$(echo $cur_dir | gzip | base64) # TODO Encode in base64 for reverse finding in specific index of specific folder
+		index_name=$(echo $cur_dir| gzip | basenc --base64url | tr '\n' ' ' | sed 's/\ //g')
+		#index_name=$(echo $cur_dir| basenc --base64url -d | gunzip) # decode
+		# To reverse find : echo "$blabla" | base64 -d | gunzip
+		# Exclude ".git" and others? TODO
+		if [[ $(grep "/.git" <<< "$cur_dir") ]]; then
+			continue
+		fi
+		echo -e "${_BLUE}[EXPLORING] Context : $subfolder${_RESET}"
+		INDEX_FILE_NAME="${index_name}.nose"
+		INDEX_FILE="${INDEXER_TMP_DIR}${INDEX_FILE_NAME}"
+		TO_PARSE_FILENAME="${index_name}.files_to_parse.nose"
+		TO_PARSE="${PARSER_TMP_DIR}${TO_PARSE_FILENAME}"
+		TF_DICT_FILENAME="${index_name}.tf.nose"
+		TF_DICT="${PARSER_TMP_DIR}${TF_DICT_FILENAME}"
+		IDF_DICT_FILENAME="${index_name}.idf.nose"
+		IDF_DICT="${PARSER_TMP_DIR}${IDF_DICT_FILENAME}"
+		FULL_DICT_FILENAME="${index_name}.tfidf.nose"
+		FULL_DICT="${PARSER_TMP_DIR}${FULL_DICT_FILENAME}"
+		INDEXER_parse_arguments "$cur_dir" >/dev/null
+		PARSER_check_index_to_parse "${INDEX_FILE}" >/dev/null 2>/dev/null
+		list_of_indexes_for_query+=("${FULL_DICT}")
+		#if [[ -n "${POTENTIAL_QUERY}" ]]; then
+		#	echo "should search in ${FULL_DICT} only"
+		#	FINDER_check_query "${FULL_DICT}" "${POTENTIAL_QUERY}" #>/dev/null
+		#	cat "${QUERY_ORDERING}" >> "${FINDER_TMP_DIR}explorer_query.txt" #| >/dev/null 2>&1
+		#fi
+	done < <(find "$dir_to_check1" -type d | sort | uniq)
+	#cat "${FINDER_TMP_DIR}explorer_query.txt" > "${QUERY_ORDERING}" 2>/dev/null
+}

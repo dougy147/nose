@@ -1,0 +1,46 @@
+#!/bin/bash
+
+INDEXER_parse_arguments() {
+	all_files=$(mktemp)
+	all_dirs=$(mktemp)
+	args=("$@")
+	n_args=${#args[@]}
+	if [ "$n_args" != 0 ]; then
+		for (( i=0; i < n_args; i++)); do
+			if [ -d "${args[${i}]}" ]; then
+				cur_arg=$(realpath ${args[${i}]})
+				echo "${_BLUE}[INDEXING] $cur_arg${_RESET}"
+				INDEXER_get_dirs_and_files_lists "$cur_arg"
+			elif [ -f "${args[${i}]}" ]; then
+				realpath "${args[${i}]}" >> "$all_files"
+			else
+				echo "${_RED}NOT INDEXING : ${args[${i}]}${_RESET}"
+				EXCLUDED_FROM_INDEXING+=("${args[${i}]}") # Useful for query
+			fi
+		done
+	else
+		echo "${_RED}[ERROR] No given file or directory.${_RESET}"
+		rm "$all_dirs" "$all_files" 2>/dev/null
+		exit 1
+	fi
+
+	nb_indexed_files=$(sort "$all_files" | uniq | tee "${INDEX_FILE}" | wc -l)
+	rm "$all_dirs" "$all_files" 2>/dev/null
+
+	if [ "$nb_indexed_files" -gt 0 ]; then
+		echo "${_BLUE}[DONE] $(cat ${INDEX_FILE} | wc -l) file(s) indexed${_RESET}"
+	else
+		echo "${_YELLOW}[INFO] No file to index${_RESET}"
+	fi
+}
+
+INDEXER_get_dirs_and_files_lists() {
+	dir_to_check1=$1
+	f_rec_cnt=$(find "$dir_to_check1" $RECURSIVE_INDEX -type f -size -${MAX_FILE_SIZE} | tee -a "$all_files" | wc -l)
+	d_rec_cnt=$(find "$dir_to_check1" $RECURSIVE_INDEX -type d | tee -a "$all_dirs" | wc -l)
+	d_rec_cnt=$(( $d_rec_cnt - 1 )) # remove parent dir in counter
+
+	echo -e "${_CYAN} * ${f_rec_cnt} file(s) ${_BLUE}[${d_rec_cnt} subdir]${_RESET}"
+	unset d_rec_cnt
+	unset f_rec_cnt
+}

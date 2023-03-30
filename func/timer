@@ -1,0 +1,19 @@
+#!/bin/bash
+
+#TIMER_start() {
+#	TIMER_START=$(date +%s.%N)
+#}
+#
+#TIMER_stop() {
+#	TIMER_END=$(date +%s.%N)
+#	TIMER_DIFF=$(echo "$TIMER_END - $TIMER_START" | bc)
+#	echo "$TIMER_DIFF"
+#}
+#
+#TIMER() {
+#	TIMER_START=$(date +%s.%N)
+#	$@
+#	TIMER_END=$(date +%s.%N)
+#	TIMER_DIFF=$(echo "$TIMER_END - $TIMER_START" | bc)
+#	echo $(echo $TIMER_DIFF | sed 's/^\./0\./' | grep -o ".*\...")s
+#}

@@ -1,0 +1,18 @@
+#!/bin/bash
+
+CLEANER_mode() {
+	rm -r "${INDEXER_TMP_DIR}"*.nose 2>/dev/null
+	rm -r "${EXPLORER_TMP_DIR}"*.nose 2>/dev/null
+	rm -r "${PARSER_TMP_DIR}"*.nose 2>/dev/null
+	rm -r "${TO_PARSE}" 2>/dev/null
+	rm -r "${TF_DICT}" 2>/dev/null
+	rm -r "${IDF_DICT}" 2>/dev/null
+	rm -r "${FULL_DICT}" 2>/dev/null
+	rm -r "${CHECKPOINT}" 2>/dev/null
+	rm -r "${QUERY_ORDERING}" 2>/dev/null
+	rm -r "${FINDER_TMP_DIR}top_ordering.txt" 2>/dev/null
+	rm -r "${FINDER_TMP_DIR}explorer_query.txt" 2>/dev/null
+	rm -r "${SERVER_DIR}/served_index.txt" 2>/dev/null
+	#rm -r "${FINDER_TMP_DIR}filepath_list.txt" 2>/dev/null
+	#rm -r "${FINDER_TMP_DIR}matching_words.txt" 2>/dev/null
+}

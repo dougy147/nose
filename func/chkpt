@@ -1,0 +1,96 @@
+#!/bin/bash
+
+CHECKPOINT_previous_session() {
+	for file in "${PARSER_TMP_DIR}"*; do
+		if [[ -f "$file" ]]; then
+			if [[ -z $found_previous_session ]]; then
+				found_previous_session=true
+				echo "${_YELLOW}[INFO] Existing files from previous parsing session${_RESET}"
+				backup_folder_name="$(date '+%Y%m%d-%H%M%S')"
+				backup_folder="${PARSER_TMP_DIR}backups/${backup_folder_name}"
+				mkdir -p "${backup_folder}"
+			fi
+			last_session_files=true
+			tmp_basename=$(basename -- "$file")
+			#echo -e "${_MAGENTA}$file\t=> ${backup_folder}/$tmp_basename${_RESET}"
+		fi
+	done
+	unset found_previous_session
+
+	if [[ -n $last_session_files ]]; then
+		for file in "${PARSER_TMP_DIR}"*; do
+			if [[ -f "$file" ]]; then
+				mv "$file" "$backup_folder"
+			fi
+		done
+		echo "${_YELLOW}[INFO] Moving previous session to ${PARSER_TMP_DIR}backups/${backup_folder_name}${_RESET}"
+		#rm "${PARSER_TMP_DIR}*" 2>/dev/null
+	fi
+}
+
+#checkpoint_checker() {
+#	checkpoint_cmd="$1"
+#	if [[ "$checkpoint_cmd" == "DONE" ]]; then
+#		unset checkpoint_reading_mode
+#		rm "${CHECKPOINT}" 2>/dev/null
+#		unset checkpoint_files_parsed
+#		unset checkpoint_nb_inserted_dict
+#		unset checkpoint_nb_processed_word
+#		unset checkpoint_nb_processed_lines_in_dict_txt
+#		unset first_time_checkpoint
+#	fi
+#
+#	if [[ "$checkpoint_cmd" == "RESET" ]]; then
+#		if [[ -z $checkpoint_file_existed && -z $first_time_checkpoint ]]; then
+#			echo "${_CYAN}[CHECKPOINT] Defining checkpoint${_RESET}"
+#			first_time_checkpoint=true
+#		fi
+#		if [[ -n $checkpoint_file_existed && -z $first_time_checkpoint ]]; then
+#			echo "${_CYAN}[CHECKPOINT] Restored last session${_RESET}"
+#			first_time_checkpoint=true
+#		fi
+#		unset checkpoint_reading_mode
+#		unset checkpoint_files_parsed
+#		unset checkpoint_nb_inserted_dict
+#		unset checkpoint_nb_processed_word
+#		unset checkpoint_nb_processed_lines_in_dict_txt
+#		checkpoint_checker "WRITE"
+#	fi
+#
+#	if [[ "$checkpoint_cmd" == "READ" ]]; then
+#		# Get current line for each possible construct
+#		if [[ -f "${CHECKPOINT}" && ! $(cat "${CHECKPOINT}") == "" ]]; then
+#			checkpoint_file_existed=true
+#			checkpoint_reading_mode=true
+#			checkpoint_files_parsed=$(sed -n '1p' "${CHECKPOINT}")
+#			checkpoint_nb_inserted_dict=$(sed -n '2p' "${CHECKPOINT}")
+#			checkpoint_nb_processed_word=$(sed -n '3p' "${CHECKPOINT}")
+#			checkpoint_nb_processed_lines_in_dict_txt=$(sed -n '4p' "${CHECKPOINT}")
+#			echo "${_CYAN}[CHECKPOINT] Restoring from last session${_RESET}"
+#		else
+#			echo "${_YELLOW}[INFO] No checkpoint file to restore${_RESET}"
+#			check_for_previous_parsing_files
+#		fi
+#	fi
+#
+#	if [[ "$checkpoint_cmd" == "WRITE" ]]; then
+#		if [[ -n "$checkpoint_reading_mode" ]]; then
+#			echo "${_YELLOW}[INFO] Not writing checkpoint file (still reading from it)${_RESET}"
+#		else
+#			# Files parsed in "files_to_parse.txt" (first line) [files_to_parse > dict.txt]
+#			# Number of words freq calculated (line 2) [dict.txt > corpus_dict.txt]
+#			# Number of processed unique words (line 3) [corpus_dict.txt > ]
+#			# Number of processed lines in dict.txt (line 4) [full_dict]
+#			echo -e "${files_parsed}\n${nb_inserted_dict}\n${nb_processed_word}\n${nb_processed_lines_in_dict_txt}" > "${CHECKPOINT}"
+#		fi
+#	fi
+#}
+
+
+#read -p "Files found from previous parsing session. Remove them? (y/N) " user_answer
+#if [[ $(echo "$user_answer" | grep -io "y") ]]; then
+#	rm "${PARSER_TMP_DIR}*"2>/dev/null
+#	unset last_session_files
+#else
+#	exit 0
+#fi

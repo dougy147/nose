@@ -1,0 +1,170 @@
+#!/bin/bash
+
+
+# TODO : check this functionality is not breaking anything (last line of this script)
+#           - once tfidf.nose have successfully been constructed : files_to_parse.nose and tf.nose are removed
+
+PARSER_check_index_to_parse() {
+	args=("$@")
+	n_args=${#args[@]}
+	if [ $n_args != 0 ]; then
+		#CHECKPOINT_previous_session
+		for (( i=0; i<$n_args; i++ )); do
+			cur_par_arg="$(realpath ${args[${i}]})"
+			if [ -f "$cur_par_arg" ]; then
+				echo "${_YELLOW}[INFO] READING INDEX \"$cur_par_arg\"${_RESET}"
+				PARSER_check_ext "$cur_par_arg"
+				PARSER_parse_files
+				PARSER_build_corpus_dictionnary
+			else
+				echo "${_MAGENTA}[WARNING] ${cur_par_arg} is not a correct index file${_RESET}"
+			fi
+		done
+	else
+		for index in "${INDEXER_TMP_DIR}"*.nose; do
+			cur_par_arg="$(realpath ${index})"
+			name=$(basename -- "$index")
+			TO_PARSE=$(echo "${PARSER_TMP_DIR}${name%.*}").files_to_parse.nose
+			TF_DICT=$(echo "${PARSER_TMP_DIR}${name%.*}").tf.nose
+			FULL_DICT=$(echo "${PARSER_TMP_DIR}${name%.*}").tfidf.nose
+			echo "${_YELLOW}[INFO] READING INDEX \"$index\"${_RESET}"
+			PARSER_check_ext "$cur_par_arg"
+			PARSER_parse_files
+			PARSER_build_corpus_dictionnary
+		done 2>/dev/null
+		if [ "$?" -ne 0 ]; then
+			echo "${_RED}[ERROR] No given index file${_RESET}"
+		fi
+	fi
+		#if [ -f "$INDEX_FILE" ]; then
+		#	CHECKPOINT_previous_session
+		#	echo "${_BLUE}[INIT] Reading index \"$INDEX_FILE\"${_RESET}"
+		#	PARSER_check_ext "$INDEX_FILE"
+		#	PARSER_parse_files
+		#	PARSER_build_corpus_dictionnary
+		#else
+		#	echo "${_RED}[ERROR] No given index file${_RESET}"
+		#	#exit 1
+		#fi
+}
+
+PARSER_check_ext() {
+	index_to_parse=$1
+	for ext in "${ALLOWED_EXTENSIONS[@]}"; do
+		l_ext=$(echo "$l_ext\\|$ext")
+	done
+	l_ext=$(echo "$l_ext" | sed 's/\\|//')
+	grep --text ".*\.${l_ext}$" "${index_to_parse}" >> "${TO_PARSE}"
+}
+
+PARSER_parse_files() {
+	if [[ -s "${TO_PARSE}" ]]; then
+		echo "${_YELLOW}[INFO] Parsing extension-supported files index ('${TO_PARSE}')${_RESET}"
+		nb_files_to_parse=$(wc -l "${TO_PARSE}" | awk '{print $1}') # mutable variable
+		total_files_to_parse=$nb_files_to_parse # immutable variable
+		files_parsed=0
+		echo "${_YELLOW}[INFO] $nb_files_to_parse files to parse${_RESET}"
+
+		while read current_file; do
+			((files_parsed++))
+			PARSER_parse_current_file
+		done < "${TO_PARSE}"
+
+	elif [[ -f "${TO_PARSE}" ]]; then
+		echo "${_RED}[ERROR] \"${TO_PARSE}\" empty${_RESET}"
+		#exit 1
+	else
+		echo "${_RED}[ERROR] No extension-compatible files to parse${_RESET}"
+		#exit 1
+	fi
+}
+
+PARSER_parse_current_file() {
+	cur_fname=$(basename -- "$current_file") # file name
+	fext="${cur_fname##*.}" # file ext
+	utf=$(mktemp) # unique term freq tmp dir
+
+	case "$fext" in
+		pdf)
+			tmp_test=$(mktemp)
+			nbw=$(pdftotext "$current_file" - 2>/dev/null | grep --text -o -E '\<[A-Za-z0-9.]*\>' |  tr '[:upper:]' '[:lower:]' | tee "$tmp_test" | wc -l)
+			sort "$tmp_test" | uniq -c | awk '{print $2"\t"$1}' > "$utf"
+			rm "$tmp_test"
+			#nbw=$(pdftotext "$current_file" - 2>/dev/null | grep --text -o -E '\<[A-Za-z0-9.]*\>' |  tr '[:upper:]' '[:lower:]' | sort | uniq -c | awk '{print $2"\t"$1}' | tee -a "$utf" | wc -l) # nb uniq words
+			if [[ "$?" -gt 0 ]]; then
+				echo -e "${_YELLOW}[WARNING] Empty content for $current_file"
+				return
+			fi;;
+
+		txt|md|org|html|xml|sh)
+			tmp_test=$(mktemp)
+			nbw=$(grep --text -io -E '\<[A-Za-z0-9.]*\>' "${current_file}" |  tr '[:upper:]' '[:lower:]' | tee "$tmp_test" | wc -l)
+			sort "$tmp_test" | uniq -c | awk '{print $2"\t"$1}' > "$utf"
+			rm "$tmp_test" ;;
+			#nbw=$(grep --text -o -E '\<[A-Za-z0-9.]*\>' "${current_file}" |  tr '[:upper:]' '[:lower:]' | sort | uniq -c | awk '{print $2"\t"$1}' | tee -a "$utf" | wc -l);;
+
+#		html)
+#			nbw=$(lynx --dump --display_charset UTF-8 "${current_file}" | grep --text -o -E '\<[A-Za-z0-9.]*\>' |  tr '[:upper:]' '[:lower:]' | sort | uniq -c | awk '{print $2"\t"$1}' | tee -a "$utf" | wc -l);;
+#
+
+		*)
+			#echo "Not compatible extension"
+			return;;
+	esac
+
+	: '
+	Get the list of unique words in the document
+	Computes their frequency
+	'
+	awk -F'\t' -v IFS='\t' -v OFS='\t' -v nb=$nbw -v fp="${current_file}" '{print $1,$2/nb,$2,nb,fp}' "$utf" >> "${TF_DICT}"
+
+	nb_files_to_parse=$(( $nb_files_to_parse - 1 ))
+	if [ "$nb_files_to_parse" -gt 0 ]; then
+		if [[ -z $first_print ]]; then
+			first_print=true
+			echo -e "${_BLUE}[ADDED] $current_file${_RESET}"
+			echo -e "${_BLUE}[ADDING] $nb_files_to_parse files remaining${_RESET}"
+			echo -e "${_CYAN}[COMP] Computing terms frequencies${_RESET}"
+		else
+			echo -e "${_DEL}${_DEL}${_DEL}${_BLUE}[ADDED] $current_file${_RESET}"
+			echo -e "${_BLUE}[ADDING] $nb_files_to_parse files remaining${_RESET}"
+			echo -e "${_CYAN}[COMP] Computing terms frequencies${_RESET}"
+		fi
+	else
+		echo -e "${_DEL}${_DEL}${_DEL}${_BLUE}[DONE] (TF) Computed terms frequencies${_RESET}"
+		unset first_print
+	fi
+}
+
+PARSER_build_corpus_dictionnary() {
+	if [ ! -f "${TF_DICT}" ]; then
+		echo "${_RED}[ERROR] '${TF_DICT}' does not exist. No given word dictionnary.${_RESET}"
+		#exit 1
+	fi
+	nb_documents=$(awk -F'\t' '{print $5}' "${TF_DICT}" | sort | uniq | wc -l)
+
+	tmp_dict_copy=$(mktemp)
+	cat "${TF_DICT}" > "$tmp_dict_copy" 2>/dev/null
+	nb_lines_dict=$(wc -l "${tmp_dict_copy}" | awk '{print $1}')
+
+	nb_processed_lines=0
+
+	# ADD IDF
+	echo -e "${_CYAN}[COMP] Computing inverse-document frequencies${_RESET}"
+	unique_word_corpus_and_nb_times_it_appears=$(mktemp)
+	awk -F'\t' '{print $1}' "${TF_DICT}" | sort | uniq -c | awk -v dc="$nb_documents" '{print $2"\t"dc/(1 + $1)}' > "$unique_word_corpus_and_nb_times_it_appears"
+	echo -e "${_DEL}${_BLUE}[DONE] (IDF) Computed inverse-document frequencies${_RESET}"
+
+	last_tmp_file=$(mktemp)
+
+	awk 'NR==FNR {a[$1]=$0;next} {print a[$1]"\t"$0}' "$unique_word_corpus_and_nb_times_it_appears" "${TF_DICT}" > "$last_tmp_file"
+
+	# COMPUTE TFIDF
+	echo -e "${_CYAN}[COMP] Computing TF-IDF index${_RESET}"
+	LC_ALL=C awk '{print $0"\t"$2*$4}' "$last_tmp_file" > "${FULL_DICT}"
+
+	echo -e "${_DEL}${_BLUE}[DONE] (TF-IDF) Index successfully constructed${_RESET}"
+
+	rm "$last_tmp_file" 2>/dev/null
+ 	rm "${TF_DICT}" "${TO_PARSE}" 2>/dev/null
+}

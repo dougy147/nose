@@ -1,0 +1,10 @@
+#!/bin/bash
+#
+# NOSE : Non-Optimal Search Engine
+
+export LC_ALL=C # Avoid troubles with decimal when sorting
+
+for config in ./conf/*conf; do source $config; done
+for func in ./func/*; do source $func; done
+
+NOSE "$@"

@@ -1,0 +1,6 @@
+		Folder	Nb_file	Maxsize	Totsize	Ext	Subfolder
+		science	1151	8M	1,1G	txt,pdf	16
+Option	Time
+-e	1min45
+-rip	1min45
+-rq	1min16

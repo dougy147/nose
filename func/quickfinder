@@ -1,0 +1,136 @@
+#!/bin/bash
+
+QUICKFINDER_check_query() {
+	rm "${QUERY_ORDERING}" 2>/dev/null
+	args=("$@")
+	n_args=${#args[@]}
+	list_of_dirs=() # reinitialize
+	list_of_files=() # reinitialize
+	if [ $n_args != 0 ]; then
+		# First grab indexes + user query if given
+		for (( i=0; i<$n_args; i++ )); do
+			cur_find_arg="${args[${i}]}"
+			#cur_arg_basename=$(basename -- "$cur_find_arg") # TODO
+			#cur_arg_ext="${cur_fname##*.}" # TODO
+			#if [[ -f "${cur_find_arg}" && "$cur_arg_ext" == "nose" ]]; then
+			if [[ -f "${cur_find_arg}" && "$cur_find_arg" != "nose" ]]; then
+			#if [[ -f "${cur_find_arg}" ]]; then
+				cur_find_arg="$(realpath $cur_find_arg)"
+				list_of_files+=("${cur_find_arg}")
+				echo "${_YELLOW}[INFO] Using ${cur_find_arg} as file${_RESET}"
+			elif [[ -d "${cur_find_arg}" ]]; then
+				cur_find_arg="$(realpath $cur_find_arg)"
+				list_of_dirs+=("${cur_find_arg}")
+				echo "${_YELLOW}[INFO] Using ${cur_find_arg} as dir${_RESET}"
+			else
+				first_user_input+=("$(echo ${cur_find_arg} | tr '[:upper:]' '[:lower:]')")
+			fi
+		done
+
+		if [[ "${#first_user_input[@]}" -eq 0 || \
+		$(echo ${first_user_input[@]} | sed 's/\ //g') == "" ||
+		( "${#list_of_dirs[@]}" -eq 0 && "${#list_of_files[@]}" -eq 0 ) ]]; then
+			# If user query not empty BUT no file nor dir, exit
+			if [[ "${#list_of_dirs[@]}" -eq 0 && "${#list_of_files[@]}" -eq 0 ]]; then
+				echo "${_RED}[ERROR] No specified files nor dir${_RESET}"
+			fi
+			if [[ "${#first_user_input[@]}" -eq 0 || $(echo ${first_user_input[@]} | sed 's/\ //g') == "" ]]; then
+				echo "${_RED}[ERROR] No given query${_RESET}"
+				echo -e "Empty query\tNULL" > "${QUERY_ORDERING}"
+				echo -e "Empty query\tNULL" > "${FINDER_TMP_DIR}top_ordering.txt"
+				cat "${QUERY_ORDERING}"
+			fi
+		else
+			echo "${_YELLOW}[INFO] Quick searching for \"${first_user_input[@]}\"${_RESET}"
+			QUICKFINDER_search
+		fi
+	else
+		echo "${_RED}ERROR: Please specify a query and a location${_RESET}"
+	fi
+}
+
+QUICKFINDER_search() {
+	# First index total files
+	"$0" -i"${RECURSIVE_MODE}" --index-name="NOSE-quickfind" "${list_of_dirs[@]}" "${list_of_files[@]}" >/dev/null
+
+	# Get the number of parsable files and
+	TO_PARSE="${PARSER_TMP_DIR}NOSE-quickfind_to_parse.nose"
+	PARSER_check_ext "${INDEXER_TMP_DIR}NOSE-quickfind.nose"
+	TOTAL_DOC=$(wc -l "${TO_PARSE}" | awk '{print $1}')
+
+	# Delete duplicates in query
+	unique_user_input=()
+	while read elem; do
+		unique_user_input+=("$elem")
+	done < <(printf "%s\n" ${first_user_input[@]} | sort -u)
+	first_user_input=${unique_user_input[@]}
+
+	# Create regex for quick find
+	for word in ${first_user_input[@]}; do
+		# If '*' in word : will look for words containing "$word"
+		if [[ $(grep "*" <<< "$word") ]]; then
+			word=$(echo "\b$word\w*")
+		fi
+		reg_words=$(echo $reg_words"|"$word)
+	done
+	reg_words=$(echo $reg_words | sed 's/^|//')
+
+	TF=$(mktemp)
+	while read file; do
+		#echo "${_BLUE}[QF] Parsing inside ${file}${_RESET}"
+		cur_fname=$(basename -- "$file") # file name
+		fext="${cur_fname##*.}" # file ext
+		case "$fext" in
+			pdf)
+				if [[ ! -f "${PDF_TO_TEXT}${cur_fname}" ]]; then
+					pdftotext "$file" - 2>/dev/null > "${PDF_TO_TEXT}${cur_fname}"
+				fi
+				grep -Eiow "$reg_words" "${PDF_TO_TEXT}${cur_fname}" 2>/dev/null | sort | uniq -ic | awk -v f="$file" '{print $2"\t"$1"\t"f}' >> "$TF" ;;
+				#grep -Eo "$reg_words" <<< $(pdftotext "$file" - 2>/dev/null) | sort | uniq -c | awk -v f="$file" '{print $2"\t"$1"\t"f}' >> "$TF";;
+
+			txt|md|org|html|xml|sh)
+				grep -Eiow "$reg_words" "$file" 2>/dev/null | sort | uniq -ic | awk -v f="$file" '{print $2"\t"$1"\t"f}' >> "$TF";;
+			gz)
+				grep -Eiow "$reg_words" <<< $(cat "$file" | gzip -d) 2>/dev/null | sort | uniq -ic | awk -v f="$file" '{print $2"\t"$1"\t"f}' >> "$TF";;
+			*)
+				continue;;
+		esac
+
+	done < "${TO_PARSE}"
+
+	#cat "$TF" && echo "ok" && exit
+
+	# Get max freq (raw freq)
+	MAX_RAW_FREQ=$(awk -v max=0 '{if($2>max){want=$2; max=$2}}END{print want}' "$TF")
+
+	## TODO : give a weight to search terms according to their presence in the corpus
+	## I'm gonna multiply the score by the inverse-frequence of the searched term in the corpus
+	#IDF=$(mktemp)
+	#for word in ${first_user_input[@]}; do
+	#	word_appears=$(awk -F'\t' '{print $2}' "$TF" | grep -ic "$word")
+	#	grep -i "^$word" "$TF" | awk -F'\t' -v n="$word_appears" -v N="$TOTAL_DOC" -v max="$MAX_RAW_FREQ" '{print $3"\t"(N/(n+1))*(0.5+(0.5*($2/max)))*(log(N/(n+1))+1)}' >> "$IDF"
+	#done
+
+	# backup
+	IDF=$(mktemp)
+	for word in ${first_user_input[@]}; do
+		word_appears=$(awk -F'\t' '{print $2}' "$TF" | grep -ic "$word")
+		grep -i "^$word" "$TF" | awk -F'\t' -v n="$word_appears" -v N="$TOTAL_DOC" -v max="$MAX_RAW_FREQ" '{print $3"\t"(0.5+(0.5*($2/max)))*(log(N/(n+1))+1)}' >> "$IDF"
+	done
+
+
+
+	# We now have TF-IDF for each word of request (in separate files : TFIDF_x)
+	awk -vFS="\t" -vOFS="\t"  '{
+					filepath=($1)
+	                         }{
+	                             	score[filepath]+=$2; next
+	                         } END {
+	                             for(sum_tfidf in score)
+	                                 print score[sum_tfidf], sum_tfidf
+	                         }' "${IDF}" | sort -nr | awk -F'\t' '{print $2"\t"$1}' > "${QUERY_ORDERING}"
+
+	cat "${QUERY_ORDERING}" | head -${TOP_NUMBER} > "${FINDER_TMP_DIR}top_ordering.txt"
+	cat "${QUERY_ORDERING}"
+
+}

@@ -1,0 +1,145 @@
+#!/bin/bash
+
+# TODO : different kind of search mode
+#		- simple   (1 index only)
+#		- concat   (multiple indexes, combine filepaths as a whole "single folder")
+#		- distinct (multiple indexes, consider unique filepaths when computing tfidf search")
+
+FINDER_check_query() {
+	rm "${QUERY_ORDERING}" 2>/dev/null
+	args=("$@")
+	n_args=${#args[@]}
+	list_of_indexes=() # reinitialize
+	if [ $n_args != 0 ]; then
+		# First grab indexes + user query if given
+		for (( i=0; i<$n_args; i++ )); do
+			cur_find_arg="${args[${i}]}" # TODO take care of .nose extension for index!
+			#if [[ -f "${cur_find_arg}" ]]; then
+			cur_arg_basename=$(basename -- "$cur_find_arg") # TODO
+			cur_arg_ext="${cur_fname##*.}" # TODO
+			if [[ -f "${cur_find_arg}" && "$cur_arg_ext" == "nose" ]]; then
+				cur_find_arg="$(realpath $cur_find_arg)"
+				list_of_indexes+=("${cur_find_arg}")
+				echo "${_YELLOW}[INFO] Using ${args[${i}]} as index${_RESET}"
+			else
+				first_user_input+=("$(echo ${args[${i}]} | tr '[:upper:]' '[:lower:]')")
+			fi
+		done
+
+		if [[ "${#first_user_input[@]}" -eq 0 || $(echo ${first_user_input[@]} | sed 's/\ //g') == "" ]]; then
+			echo "${_RED}[ERROR] No given query${_RESET}"
+			echo -e "Empty query\tNULL" > "${QUERY_ORDERING}"
+			echo -e "Empty query\tNULL" > "${FINDER_TMP_DIR}top_ordering.txt"
+			cat "${QUERY_ORDERING}"
+
+		# If user query not empty BUT no index : grab all .nose in out/parser/*.tfidf.nose
+		elif [[ "${#list_of_indexes[@]}" -eq 0 ]]; then
+			echo "${_YELLOW}[INFO] No specified index. Checking default, or *tfidf.nose in ${PARSER_TMP_DIR}${_RESET}"
+			if [[ -f "${FULL_DICT}" ]]; then
+				echo "${_YELLOW}[INFO] Using index ${FULL_DICT}${_RESET}"
+				FINDER_launch_search
+			else
+				echo "${_YELLOW}[INFO] Default index not found. Searching in available indexes (${PARSER_TMP_DIR}*.tfidf.nose)${_RESET}"
+				for tfidf in "${PARSER_TMP_DIR}"*.tfidf.nose; do
+					cur_find_arg="$(realpath $tfidf)"
+					list_of_indexes+=("${cur_find_arg}")
+				done 2>/dev/null
+				if [ "$?" -ne 0 ]; then
+					echo "${_RED}[ERROR] No index file${_RESET}"
+				else
+					FINDER_launch_search
+				fi
+			fi
+		else
+			FINDER_launch_search
+		fi
+	else
+		echo "${_RED}ERROR: Please specify a query${_RESET}"
+		#exit 1
+	fi
+}
+
+FINDER_launch_search() {
+	tmp_query_ordering=$(mktemp)
+	nb_indexes_given="${#list_of_indexes[@]}"
+	if [[ "$nb_indexes_given" -eq 0 ]]; then
+		FINDER_ranking_documents
+		FINDER_output_query_results
+	else
+		for indexes in ${list_of_indexes[@]}; do
+			FULL_DICT="$indexes"
+			echo "${_YELLOW}[SEARCH] Searching in index ${indexes}${_RESET}"
+			if [[ ! -f "${indexes}" ]]; then
+				echo "${_RED}[ERROR] Index $indexes not found${_RESET}"
+				echo -e "ERR: ${indexes} not found\tNULL" >> "${QUERY_ORDERING}"
+				cat "${QUERY_ORDERING}"
+				#exit 1
+			fi
+			FINDER_ranking_documents
+		done
+		FINDER_output_query_results
+	fi
+}
+
+FINDER_ranking_documents() {
+	: '
+	Ranks documents of the given corpus
+	Takes user input, tokenizes it, check for each token (word) its relevancy for each document,
+	then adds the scores of each token of user input by document, and ranks the documents.
+	'
+	# Regular expression-like (if '*' in a word, find all potential matching words)
+	for word in ${first_user_input[@]}; do
+		if [[ $(grep "*" <<< "$word") ]]; then
+			word=$(echo $word | sed 's/\*//')
+			while read -r new_words; do
+				#echo $new_words
+				user_input+=("${new_words}")
+			done < <(grep -P "^$word" "${FULL_DICT}" | awk '{print $1}' | sort | uniq | sed '/^$/d')
+		else
+			user_input+=("${word}")
+		fi
+	done
+
+	for word in ${user_input[@]}; do
+			awk -F'\t' -v cw="$word" '$1 == cw {print $8"\t"$7}' "${FULL_DICT}" | sort -nr | uniq | awk -F'\t' '{print $2"\t"$1}' >> "${QUERY_ORDERING}"
+	done
+
+	# Sum scores up for each found file
+	if [[ "${#user_input[@]}" -gt 1 ]]; then
+		sum_for_each_query_word=$(mktemp)
+		awk -vFS="\t" -vOFS="\t"  '{
+						filepath=($1)
+		                         }{
+		                             	score[filepath]+=$2; next
+		                         } END {
+		                             for(sum_tfidf in score)
+		                                 print score[sum_tfidf], sum_tfidf
+		                         }' "${QUERY_ORDERING}" | sort -nr | awk -F'\t' '{print $2"\t"$1}' > "$sum_for_each_query_word"
+
+		cat "$sum_for_each_query_word" > "${QUERY_ORDERING}"
+	fi
+
+	cat "${QUERY_ORDERING}" | head -${TOP_NUMBER} > "${FINDER_TMP_DIR}top_ordering.txt"
+}
+
+FINDER_output_query_results() {
+	#awk -F'\t' '{print $0}' "${QUERY_ORDERING}" | sort -nk2r | uniq
+	cat "${QUERY_ORDERING}"
+}
+
+
+
+#awk -vFS="\t" -vOFS="\t"  '{
+#				filepath=($1)
+#                         }{
+#                             	score[filepath]+=$2; next
+#                         } END {
+#                             PROCINFO["sorted_in"] = "@ind_str_asc"
+#                             for(sum_tfidf in score)
+#                                 print sum_tfidf, score[sum_tfidf]
+#                         }' "${QUERY_ORDERING}"
+
+
+#awk -F'\t' 'BEGIN{FS=OFS="\t"}
+#    	{q=$2; $2="~"; a[$0]+=q}
+#END  {for(k in a) {sub("~",a[k],k); print k}}' "${QUERY_ORDERING}" >> "$sum_for_each_query_word"

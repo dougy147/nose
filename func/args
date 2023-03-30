@@ -1,0 +1,160 @@
+#!/bin/bash
+
+if [ ! -d "${INDEXER_TMP_DIR}" ]; then mkdir -p "${INDEXER_TMP_DIR}"; fi
+if [ ! -d "${EXPLORER_TMP_DIR}" ]; then	mkdir -p "${EXPLORER_TMP_DIR}"; fi
+if [ ! -d "${PARSER_TMP_DIR}" ]; then mkdir -p "${PARSER_TMP_DIR}"; fi
+if [ ! -d "${FINDER_TMP_DIR}" ]; then mkdir -p "${FINDER_TMP_DIR}"; fi
+if [ ! -d "${PERS_DIR}" ]; then mkdir -p "${PERS_DIR}"; fi
+if [ ! -d "${PDF_TO_TEXT}" ]; then mkdir -p "${PDF_TO_TEXT}"; fi
+
+NOSE() {
+	: '
+	1. Store ALL arguments in "$NOSE_ARGS"
+		a. if OPTION is found (e.g "--index-name") : evaluate it, then remove it from "$NOSE_ARGS"
+	2. Check FIRST argument in "$NOSE_ARGS"
+		a. if does not start with a "-" : exit
+		b. else : evaluate in order h,c,r,e,i,p,f,s
+	'
+	# 1.
+	NOSE_ARGS=("$@")
+	N_NOSE_ARGS=${#NOSE_ARGS[@]}
+	if [[ $N_NOSE_ARGS -gt 0 ]]; then
+		for (( i=0;i<${N_NOSE_ARGS};i++)); do
+			NOSE_CUR_ARG="${NOSE_ARGS[${i}]}"
+			if [[ $(grep -- "--index-name=" <<< "$NOSE_CUR_ARG") ]]; then
+				#index_name=$(echo "$NOSE_CUR_ARG" | grep -Po -- '--index-name=\K.*')
+				if [[ $(echo "$NOSE_CUR_ARG" | grep -Po -- '--index-name=\K.*') ]]; then
+					index_name=$(echo "$NOSE_CUR_ARG" | grep -Po -- '--index-name=\K.*')
+					INDEX_FILE_NAME="${index_name}.nose"
+					INDEX_FILE="${INDEXER_TMP_DIR}${INDEX_FILE_NAME}"
+					TO_PARSE_FILENAME="${index_name}.files_to_parse.nose"
+					TO_PARSE="${PARSER_TMP_DIR}${TO_PARSE_FILENAME}"
+					TF_DICT_FILENAME="${index_name}.tf.nose"
+					TF_DICT="${PARSER_TMP_DIR}${TF_DICT_FILENAME}"
+					IDF_DICT_FILENAME="${index_name}.idf.nose"
+					IDF_DICT="${PARSER_TMP_DIR}${IDF_DICT_FILENAME}"
+					FULL_DICT_FILENAME="${index_name}.tfidf.nose"
+					FULL_DICT="${PARSER_TMP_DIR}${FULL_DICT_FILENAME}"
+					# Delete this argument from list
+					NOSE_ARGS=( "${NOSE_ARGS[@]/$NOSE_CUR_ARG}" )
+					## Append to options
+					#NOSE_OPTIONS=$(echo "${NOSE_OPTIONS} $NOSE_CUR_ARG")
+				fi
+			fi
+			if [[ $(grep -- "--ext=" <<< "$NOSE_CUR_ARG") ]]; then
+				if [[ $(echo "$NOSE_CUR_ARG" | grep -Po -- '--ext=\K.*') ]]; then
+					user_ext=$(echo "$NOSE_CUR_ARG" | grep -Po -- '--ext=\K.*' | tr ',' '\n')
+					unset ALLOWED_EXTENSIONS
+					while read uext; do
+						ALLOWED_EXTENSIONS+=("$uext")
+					done <<< "$user_ext"
+					NOSE_ARGS=( "${NOSE_ARGS[@]/$NOSE_CUR_ARG}" )
+					#NOSE_OPTIONS=$(echo "${NOSE_OPTIONS} $NOSE_CUR_ARG")
+				fi
+			fi
+			if [[ $(grep -- "--max-size=" <<< "$NOSE_CUR_ARG") ]]; then
+				if [[ $(echo "$NOSE_CUR_ARG" | grep -Po -- '--max-size=\K.*') ]]; then
+					user_max=$(echo "$NOSE_CUR_ARG" | grep -Po -- '--max-size=\K.*')
+					unset MAX_FILE_SIZE
+					MAX_FILE_SIZE="$user_max"
+					NOSE_ARGS=( "${NOSE_ARGS[@]/$NOSE_CUR_ARG}" )
+					#NOSE_OPTIONS=$(echo "${NOSE_OPTIONS} $NOSE_CUR_ARG")
+				fi
+			fi
+			if [[ $(grep -- "--from-server" <<< "$NOSE_CUR_ARG") ]]; then
+				#REQUEST_SENT_FROM_SERVER=true
+				rm "${FINDER_TMP_DIR}top_ordering.txt" 2>/dev/null
+				NOSE_ARGS=( "${NOSE_ARGS[@]/$NOSE_CUR_ARG}" )
+				#NOSE_OPTIONS=$(echo "${NOSE_OPTIONS} $NOSE_CUR_ARG")
+			fi
+		done
+	fi
+
+	# 2.
+	FIRST_ARG=${NOSE_ARGS[0]}
+	#NB_ARGS=${#@}
+	if [[ $(grep - <<< "$FIRST_ARG") ]]; then
+		NOSE_exclude_args "${NOSE_ARGS[@]}"
+		if [[ $(grep h <<< "$FIRST_ARG") ]]; then
+			NOSE_display_help
+			exit 0
+		fi
+		if [[ $(grep c <<< "$FIRST_ARG") ]]; then
+			echo "${_BLUE}${LOGO_CLEANER}${_RESET}"
+			CLEANER_mode
+		fi
+		if [[ $(grep r <<< "$FIRST_ARG") ]]; then
+			RECURSIVE_INDEX="" # set "-maxdepth 1" to "NONE"
+			RECURSIVE_MODE="r"
+			is_rec_on="${_CYAN}[recursive]${_RESET}"
+		fi
+		if [[ $(grep e <<< "$FIRST_ARG") ]]; then
+			EXPLORER_parse_arguments "${NOSE[@]}"
+		fi
+		if [[ $(grep i <<< "$FIRST_ARG") ]]; then
+			#echo -e "${_BLUE}${LOGO_INDEXER}${is_rec_on}${_RESET}"
+			INDEXER_parse_arguments "${NOSE[@]}"
+			is_indexing_on=true
+		fi
+		if [[ $(grep p <<< "$FIRST_ARG") ]]; then
+			#echo "${_BLUE}${LOGO_PARSER}${_RESET}"
+			if [[ -n $is_indexing_on ]]; then
+				PARSER_check_index_to_parse "${INDEX_FILE}"
+			else
+				PARSER_check_index_to_parse "${NOSE[@]}"
+			fi
+		fi
+		if [[ $(grep f <<< "$FIRST_ARG") ]]; then
+			#echo "${_BLUE}${LOGO_FINDER}${_RESET}"
+			if [[ -n $is_indexing_on ]]; then
+				FINDER_check_query "${EXCLUDED_FROM_INDEXING}"
+			else
+				FINDER_check_query "${NOSE[@]}"
+			fi
+		fi
+		if [[ $(grep q <<< "$FIRST_ARG") ]]; then
+			QUICKFINDER_check_query "${NOSE[@]}" # TODO : quick finder
+		fi
+		if [[ $(grep s <<< "$FIRST_ARG") ]]; then
+			echo "${_BLUE}${LOGO_SERVER}[NOSE]${_RESET}"
+			SERVER_server_mode "${NOSE[@]}"
+		fi
+	else
+		echo "${_BLUE}\"$0 [OPTION]\" needed${_RESET}"
+		NOSE_display_help
+	fi
+}
+
+NOSE_exclude_args() {
+        #if [ -z "$already_removed" ]; then
+	#already_removed=true
+	NOSE=()
+	for argument in "${NOSE_ARGS[@]}"; do
+		if [[ "$argument" == "${FIRST_ARG}" ]]; then
+			continue
+		fi
+		if [[ -n "$argument" ]]; then
+       			NOSE+=("$argument")
+		fi
+	done
+	#echo "${NOSE[@]}"
+	#fi
+}
+
+NOSE_display_help() {
+	echo -e "${_BLUE}${LOGO_NOSE}${_RESET}${_BLUE}HELP MENU${_RESET} \
+	\n ${_BOLD}-i${_RESET} : Index a given list of files or directories (${_BOLD}-ir${_RESET} for recursive indexing) \
+	\n ${_BOLD}-p${_RESET} : Parse index files \
+	\n ${_BOLD}-f${_RESET} : Find the best match in index given a query \
+	\n ${_BOLD}-c${_RESET} : Clean every files in result folder \"${RESULT_FOLDER}\" \
+	\n ${_BOLD}-h${_RESET} : Print this help menu \
+	\n
+	${_ULINE}Example${_RESET} : ${_BLUE}./nose -ipf $HOME \"your search\"${_RESET}"
+}
+
+#for i in $(seq 1 ${#FIRST_ARG}); do
+#	cur_arg="${FIRST_ARG:i-1:1}"
+#	case $cur_arg in
+#		-)
+#			continue;;
+# [...]
